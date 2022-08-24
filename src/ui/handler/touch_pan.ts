@@ -2,6 +2,7 @@ import Point from '@mapbox/point-geometry';
 import {indexTouches} from './handler_util';
 import type Map from '../map';
 import {GestureOptions} from '../map';
+import LngLat from '../../geo/lng_lat';
 
 export default class TouchPanHandler {
 
@@ -15,11 +16,12 @@ export default class TouchPanHandler {
     _sum: Point;
     _map: Map;
     _cancelCooperativeMessage: boolean;
+    _startLngLat: LngLat;
 
-    constructor(options: {
+    constructor(map: Map, options: {
         clickTolerance: number;
         cooperativeGestures: boolean | GestureOptions;
-    }, map: Map) {
+    }) {
         this._minTouches = options.cooperativeGestures ? 2 : 1;
         this._clickTolerance = options.clickTolerance || 1;
         this._map = map;
@@ -28,6 +30,7 @@ export default class TouchPanHandler {
 
     reset() {
         this._active = false;
+        this._startLngLat = undefined;
         this._touches = {};
         this._sum = new Point(0, 0);
 
@@ -97,10 +100,12 @@ export default class TouchPanHandler {
         if (this._sum.mag() < this._clickTolerance) return;
 
         const around = touchPointSum.div(touchDeltaCount);
+        if (!this._startLngLat)
+            this._startLngLat = this._map.unproject(around);
 
         return {
             around,
-            panDelta
+            dragLngLat: this._startLngLat
         };
     }
 

@@ -1,5 +1,8 @@
 import DOM from '../../util/dom';
+import LngLat from '../../geo/lng_lat';
+import type Map from '../map';
 import type Point from '@mapbox/point-geometry';
+import {clamp} from '../../util/util';
 
 const LEFT_BUTTON = 0;
 const RIGHT_BUTTON = 2;
@@ -17,6 +20,7 @@ function buttonStillPressed(e: MouseEvent, button: number) {
 
 class MouseHandler {
 
+    _map: Map;
     _enabled: boolean;
     _active: boolean;
     _lastPoint: Point;
@@ -24,11 +28,12 @@ class MouseHandler {
     _moved: boolean;
     _clickTolerance: number;
 
-    constructor(options: {
+    constructor(map: Map, options: {
         clickTolerance: number;
     }) {
         this.reset();
         this._clickTolerance = options.clickTolerance || 1;
+        this._map = map;
     }
 
     reset() {
@@ -107,10 +112,19 @@ class MouseHandler {
 }
 
 export class MousePanHandler extends MouseHandler {
+    _startLngLat: LngLat;
+
+    reset() {
+        super.reset();
+        delete this._startLngLat;
+    }
 
     mousedown(e: MouseEvent, point: Point) {
         super.mousedown(e, point);
-        if (this._lastPoint) this._active = true;
+        if (this._lastPoint) {
+            this._active = true;
+            this._startLngLat = this._map.unproject(this._lastPoint);
+        }
     }
     _correctButton(e: MouseEvent, button: number) {
         return button === LEFT_BUTTON && !e.ctrlKey;
@@ -119,12 +133,19 @@ export class MousePanHandler extends MouseHandler {
     _move(lastPoint: Point, point: Point) {
         return {
             around: point,
-            panDelta: point.sub(lastPoint)
+            dragLngLat: this._startLngLat
         };
     }
 }
 
 export class MouseRotateHandler extends MouseHandler {
+    _lastBearing: number;
+
+    reset() {
+        super.reset();
+        delete this._lastBearing;
+    }
+
     _correctButton(e: MouseEvent, button: number) {
         return (button === LEFT_BUTTON && e.ctrlKey) || (button === RIGHT_BUTTON);
     }
@@ -134,7 +155,10 @@ export class MouseRotateHandler extends MouseHandler {
         const bearingDelta = (point.x - lastPoint.x) * degreesPerPixelMoved;
         if (bearingDelta) {
             this._active = true;
-            return {bearingDelta};
+            const tr = this._map.transform;
+            const bearing = (this._lastBearing ?? tr.bearing) + bearingDelta;
+            this._lastBearing = bearing;
+            return {bearing};
         }
     }
 
@@ -146,6 +170,13 @@ export class MouseRotateHandler extends MouseHandler {
 }
 
 export class MousePitchHandler extends MouseHandler {
+    _lastPitch: number;
+
+    reset() {
+        super.reset();
+        delete this._lastPitch;
+    }
+
     _correctButton(e: MouseEvent, button: number) {
         return (button === LEFT_BUTTON && e.ctrlKey) || (button === RIGHT_BUTTON);
     }
@@ -155,7 +186,11 @@ export class MousePitchHandler extends MouseHandler {
         const pitchDelta = (point.y - lastPoint.y) * degreesPerPixelMoved;
         if (pitchDelta) {
             this._active = true;
-            return {pitchDelta};
+            const tr = this._map.transform;
+            let pitch = (this._lastPitch ?? tr.pitch) + pitchDelta;
+            pitch = clamp(pitch, tr.minPitch, tr.maxPitch);
+            this._lastPitch = pitch;
+            return {pitch};
         }
     }
 

@@ -1,9 +1,10 @@
 import Point from '@mapbox/point-geometry';
 import DOM from '../../util/dom';
 import type Map from '../map';
+import {wrap, clamp} from '../../util/util';
 
 class TwoTouchHandler {
-
+    _map: Map;
     _enabled: boolean;
     _active: boolean;
     _firstTwoTouches: [number, number];
@@ -11,7 +12,8 @@ class TwoTouchHandler {
     _startVector: Point;
     _aroundCenter: boolean;
 
-    constructor() {
+    constructor(map: Map) {
+        this._map = map;
         this.reset();
     }
 
@@ -105,12 +107,13 @@ function getZoomDelta(distance, lastDistance) {
 }
 
 export class TouchZoomHandler extends TwoTouchHandler {
-
+    _lastZoom: number;
     _distance: number;
     _startDistance: number;
 
     reset() {
         super.reset();
+        delete this._lastZoom;
         delete this._distance;
         delete this._startDistance;
     }
@@ -121,11 +124,21 @@ export class TouchZoomHandler extends TwoTouchHandler {
 
     _move(points: [Point, Point], pinchAround: Point) {
         const lastDistance = this._distance;
+        const tr = this._map.transform;
         this._distance = points[0].dist(points[1]);
         if (!this._active && Math.abs(getZoomDelta(this._distance, this._startDistance)) < ZOOM_THRESHOLD) return;
         this._active = true;
+
+        const zoomDelta = getZoomDelta(this._distance, lastDistance);
+        const zoom = clamp(
+            (this._lastZoom ?? tr.zoom) + zoomDelta, 
+            tr.minZoom, 
+            tr.maxZoom
+        );
+        this._lastZoom = zoom;
+
         return {
-            zoomDelta: getZoomDelta(this._distance, lastDistance),
+            zoom,
             pinchAround
         };
     }
@@ -140,10 +153,12 @@ function getBearingDelta(a, b) {
 }
 
 export class TouchRotateHandler extends TwoTouchHandler {
+    _lastBearing: number;
     _minDiameter: number;
 
     reset() {
         super.reset();
+        delete this._lastBearing;
         delete this._minDiameter;
         delete this._startVector;
         delete this._vector;
@@ -156,13 +171,18 @@ export class TouchRotateHandler extends TwoTouchHandler {
 
     _move(points: [Point, Point], pinchAround: Point) {
         const lastVector = this._vector;
+        const tr = this._map.transform;
         this._vector = points[0].sub(points[1]);
 
         if (!this._active && this._isBelowThreshold(this._vector)) return;
         this._active = true;
+        
+        const bearingDelta = getBearingDelta(this._vector, lastVector);
+        const bearing = (this._lastBearing ?? tr.bearing) + bearingDelta;
+        this._lastBearing = bearing;
 
         return {
-            bearingDelta: getBearingDelta(this._vector, lastVector),
+            bearing,
             pinchAround
         };
     }
@@ -199,21 +219,16 @@ const ALLOWED_SINGLE_TOUCH_TIME = 100;
  * The `TouchPitchHandler` allows the user to pitch the map by dragging up and down with two fingers.
  */
 export class TouchPitchHandler extends TwoTouchHandler {
-
+    _lastPitch: number;
     _valid: boolean | void;
     _firstMove: number;
     _lastPoints: [Point, Point];
-    _map: Map;
     _currentTouchCount: number;
-
-    constructor(map: Map) {
-        super();
-        this._map = map;
-    }
 
     reset() {
         super.reset();
         this._valid = undefined;
+        delete this._lastPitch;
         delete this._firstMove;
         delete this._lastPoints;
     }
@@ -240,6 +255,7 @@ export class TouchPitchHandler extends TwoTouchHandler {
 
         const vectorA = points[0].sub(this._lastPoints[0]);
         const vectorB = points[1].sub(this._lastPoints[1]);
+        const tr = this._map.transform;
 
         this._valid = this.gestureBeginsVertically(vectorA, vectorB, e.timeStamp);
         if (!this._valid) return;
@@ -248,9 +264,16 @@ export class TouchPitchHandler extends TwoTouchHandler {
         this._active = true;
         const yDeltaAverage = (vectorA.y + vectorB.y) / 2;
         const degreesPerPixelMoved = -0.5;
-        return {
-            pitchDelta: yDeltaAverage * degreesPerPixelMoved
-        };
+        const pitchDelta = yDeltaAverage * degreesPerPixelMoved;
+
+        const pitch = clamp(
+            (this._lastPitch ?? tr.pitch) + pitchDelta,
+            tr.minPitch,
+            tr.maxPitch
+        );
+        this._lastPitch = pitch;
+
+        return {pitch};
     }
 
     gestureBeginsVertically(vectorA: Point, vectorB: Point, timeStamp: number) {

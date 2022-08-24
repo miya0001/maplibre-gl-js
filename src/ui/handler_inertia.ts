@@ -83,11 +83,28 @@ export default class HandlerInertia {
             around: undefined
         };
 
+        let firstZoom: number;
+        let firstBearing: number;
+        let firstPitch: number;
+        let firstPoint: Point;
+
         for (const {settings} of this._inertiaBuffer) {
-            deltas.zoom += settings.zoomDelta || 0;
-            deltas.bearing += settings.bearingDelta || 0;
-            deltas.pitch += settings.pitchDelta || 0;
-            if (settings.panDelta) deltas.pan._add(settings.panDelta);
+            if (settings.zoom !== undefined) {
+                firstZoom = firstZoom ?? settings.zoom;
+                deltas.zoom = settings.zoom - firstZoom;
+            }
+            if (settings.bearing !== undefined) {
+                firstBearing = firstBearing ?? settings.bearing;
+                deltas.bearing = settings.bearing - firstBearing;
+            }
+            if (settings.pitch !== undefined) {
+                firstPitch = firstPitch ?? settings.pitch;
+                deltas.pitch = settings.pitch - firstPitch;
+            }
+            if (settings.dragLngLat) {
+                firstPoint = firstPoint ?? settings.around;
+                deltas.pan = settings.around.sub(firstPoint);
+            }
             if (settings.around) deltas.around = settings.around;
             if (settings.pinchAround) deltas.pinchAround = settings.pinchAround;
         }

@@ -157,9 +157,9 @@ class MouseRotateWrapper {
     constructor(map: Map, element: HTMLElement, pitch: boolean = false) {
         this._clickTolerance = 10;
         this.element = element;
-        this.mouseRotate = new MouseRotateHandler({clickTolerance: map.dragRotate._mouseRotate._clickTolerance});
+        this.mouseRotate = new MouseRotateHandler(map, {clickTolerance: map.dragRotate._mouseRotate._clickTolerance});
         this.map = map;
-        if (pitch) this.mousePitch = new MousePitchHandler({clickTolerance: map.dragRotate._mousePitch._clickTolerance});
+        if (pitch) this.mousePitch = new MousePitchHandler(map, {clickTolerance: map.dragRotate._mousePitch._clickTolerance});
 
         bindAll(['mousedown', 'mousemove', 'mouseup', 'touchstart', 'touchmove', 'touchend', 'reset'], this);
         DOM.addEventListener(element, 'mousedown', this.mousedown);

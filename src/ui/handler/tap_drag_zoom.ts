@@ -1,17 +1,20 @@
 import {TapRecognizer, MAX_TAP_INTERVAL} from './tap_recognizer';
 import type Point from '@mapbox/point-geometry';
+import type Map from '../map';
+import {clamp} from '../../util/util';
 
 export default class TapDragZoomHandler {
-
+    _map: Map;
     _enabled: boolean;
     _active: boolean;
     _swipePoint: Point;
     _swipeTouch: number;
     _tapTime: number;
     _tap: TapRecognizer;
+    _lastZoom?: number;
 
-    constructor() {
-
+    constructor(map: Map) {
+        this._map = map;
         this._tap = new TapRecognizer({
             numTouches: 1,
             numTaps: 1
@@ -22,6 +25,7 @@ export default class TapDragZoomHandler {
 
     reset() {
         this._active = false;
+        this._lastZoom = undefined;
         delete this._swipePoint;
         delete this._swipeTouch;
         delete this._tapTime;
@@ -52,6 +56,7 @@ export default class TapDragZoomHandler {
                 return;
             }
 
+            const tr = this._map.transform;
             const newSwipePoint = points[0];
             const dist = newSwipePoint.y - this._swipePoint.y;
             this._swipePoint = newSwipePoint;
@@ -59,9 +64,14 @@ export default class TapDragZoomHandler {
             e.preventDefault();
             this._active = true;
 
-            return {
-                zoomDelta: dist / 128
-            };
+            const zoomDelta = dist / 128;
+            const zoom = clamp(
+                (this._lastZoom ?? tr.zoom) + zoomDelta,
+                tr.minZoom,
+                tr.maxZoom);
+            this._lastZoom = zoom;
+
+            return {zoom};
         }
     }
 

@@ -63,12 +63,12 @@ export interface Handler {
 
 // All handler methods that are called with events can optionally return a `HandlerResult`.
 export type HandlerResult = {
-    panDelta?: Point;
-    zoomDelta?: number;
-    bearingDelta?: number;
-    pitchDelta?: number;
+    zoom?: number;
+    bearing?: number;
+    pitch?: number;
     // the point to not move when changing the camera
     around?: Point | null;
+    dragLngLat?: LngLat;
     // same as above, except for pinch actions, which are given higher priority
     pinchAround?: Point | null;
     // A method that can fire a one-off easing by directly changing the map's camera.
@@ -83,7 +83,7 @@ export type HandlerResult = {
 };
 
 function hasChange(result: HandlerResult) {
-    return (result.panDelta && result.panDelta.mag()) || result.zoomDelta || result.bearingDelta || result.pitchDelta;
+    return result.dragLngLat || result.zoom || result.bearing || result.pitch;
 }
 
 class HandlerManager {
@@ -101,7 +101,6 @@ class HandlerManager {
     _handlersById: {[x: string]: Handler};
     _updatingCamera: boolean;
     _changes: Array<[HandlerResult, any, any]>;
-    _drag: {center: Point; lngLat: LngLat; point: Point; handlerName: string};
     _previousActiveHandlers: {[x: string]: Handler};
     _listeners: Array<[Window | Document | HTMLElement, string, {
         passive?: boolean;
@@ -192,26 +191,26 @@ class HandlerManager {
         this._add('tapZoom', tapZoom);
         this._add('clickZoom', clickZoom);
 
-        const tapDragZoom = new TapDragZoomHandler();
+        const tapDragZoom = new TapDragZoomHandler(map);
         this._add('tapDragZoom', tapDragZoom);
 
         const touchPitch = map.touchPitch = new TouchPitchHandler(map);
         this._add('touchPitch', touchPitch);
 
-        const mouseRotate = new MouseRotateHandler(options);
-        const mousePitch = new MousePitchHandler(options);
+        const mouseRotate = new MouseRotateHandler(map, options);
+        const mousePitch = new MousePitchHandler(map, options);
         map.dragRotate = new DragRotateHandler(options, mouseRotate, mousePitch);
         this._add('mouseRotate', mouseRotate, ['mousePitch']);
         this._add('mousePitch', mousePitch, ['mouseRotate']);
 
-        const mousePan = new MousePanHandler(options);
-        const touchPan = new TouchPanHandler(options, map);
+        const mousePan = new MousePanHandler(map, options);
+        const touchPan = new TouchPanHandler(map, options);
         map.dragPan = new DragPanHandler(el, mousePan, touchPan);
         this._add('mousePan', mousePan);
         this._add('touchPan', touchPan, ['touchZoom', 'touchRotate']);
 
-        const touchRotate = new TouchRotateHandler();
-        const touchZoom = new TouchZoomHandler();
+        const touchRotate = new TouchRotateHandler(map);
+        const touchZoom = new TouchZoomHandler(map);
         map.touchZoomRotate = new TouchZoomRotateHandler(el, touchZoom, touchRotate, tapDragZoom);
         this._add('touchRotate', touchRotate, ['touchPan', 'touchZoom']);
         this._add('touchZoom', touchZoom, ['touchPan', 'touchRotate']);
@@ -374,36 +373,28 @@ class HandlerManager {
         const eventData = {handlerName: name, originalEvent: handlerResult.originalEvent || e};
 
         // track which handler changed which camera property
-        if (handlerResult.zoomDelta !== undefined) {
+        if (handlerResult.zoom !== undefined) {
             eventsInProgress.zoom = eventData;
         }
-        if (handlerResult.panDelta !== undefined) {
+        if (handlerResult.dragLngLat !== undefined) {
             eventsInProgress.drag = eventData;
         }
-        if (handlerResult.pitchDelta !== undefined) {
+        if (handlerResult.pitch !== undefined) {
             eventsInProgress.pitch = eventData;
         }
-        if (handlerResult.bearingDelta !== undefined) {
+        if (handlerResult.bearing !== undefined) {
             eventsInProgress.rotate = eventData;
         }
 
     }
 
     _applyChanges() {
-        const combined: {[k: string]: any} = {};
+        const combined: HandlerResult = {};
         const combinedEventsInProgress = {};
         const combinedDeactivatedHandlers = {};
 
         for (const [change, eventsInProgress, deactivatedHandlers] of this._changes) {
-
-            if (change.panDelta) combined.panDelta = (combined.panDelta || new Point(0, 0))._add(change.panDelta);
-            if (change.zoomDelta) combined.zoomDelta = (combined.zoomDelta || 0) + change.zoomDelta;
-            if (change.bearingDelta) combined.bearingDelta = (combined.bearingDelta || 0) + change.bearingDelta;
-            if (change.pitchDelta) combined.pitchDelta = (combined.pitchDelta || 0) + change.pitchDelta;
-            if (change.around !== undefined) combined.around = change.around;
-            if (change.pinchAround !== undefined) combined.pinchAround = change.pinchAround;
-            if (change.noInertia) combined.noInertia = change.noInertia;
-
+            extend(combined, change);
             extend(combinedEventsInProgress, eventsInProgress);
             extend(combinedDeactivatedHandlers, deactivatedHandlers);
         }
@@ -412,16 +403,18 @@ class HandlerManager {
         this._changes = [];
     }
 
-    _updateMapTransform(combinedResult: any, combinedEventsInProgress: any, deactivatedHandlers: any) {
+    _updateMapTransform(combinedResult: HandlerResult, combinedEventsInProgress: any, deactivatedHandlers: any) {
         const map = this._map;
         const tr = map.transform;
         const terrain = map.style && map.style.terrain;
 
-        if (!hasChange(combinedResult) && !(terrain && this._drag)) {
+        if (!hasChange(combinedResult) && Object.keys(this._eventsInProgress).length === 0) {
             return this._fireEvents(combinedEventsInProgress, deactivatedHandlers, true);
         }
 
-        let {panDelta, zoomDelta, bearingDelta, pitchDelta, around, pinchAround} = combinedResult;
+        const tr2 = tr.clone();
+
+        let {dragLngLat, zoom, bearing, pitch, around, pinchAround} = combinedResult;
 
         if (pinchAround !== undefined) {
             around = pinchAround;
@@ -430,45 +423,43 @@ class HandlerManager {
         // stop any ongoing camera animations (easeTo, flyTo)
         map._stop(true);
 
-        around = around || map.transform.centerPoint;
-        const loc = tr.pointLocation(panDelta ? around.sub(panDelta) : around);
-        if (bearingDelta) tr.bearing += bearingDelta;
-        if (pitchDelta) tr.pitch += pitchDelta;
-        if (zoomDelta) tr.zoom += zoomDelta;
+        around = around || tr.centerPoint;
 
-        if (!terrain) {
-            tr.setLocationAtPoint(loc, around);
-        } else {
-            // when 3d-terrain is enabled act a litte different:
-            //    - draging do not drag the picked point itself, instead it drags the map by pixel-delta.
-            //      With this approach it is no longer possible to pick a point from somewhere near
-            //      the horizon to the center in one move.
-            //      So this logic avoids the problem, that in such cases you easily loose orientation.
-            //    - scrollzoom does not zoom into the mouse-point, instead it zooms into map-center
-            //      this should be fixed in future-version
-            // when dragging starts, remember mousedown-location and panDelta from this point
-            if (combinedEventsInProgress.drag && !this._drag) {
-                this._drag = {
-                    center: tr.centerPoint,
-                    lngLat: tr.pointLocation(around),
-                    point: around,
-                    handlerName: combinedEventsInProgress.drag.handlerName
-                };
-                map.fire(new Event('freezeElevation', {freeze: true}));
-            // when dragging ends, recalcuate the zoomlevel for the new center coordinate
-            } else if (this._drag && deactivatedHandlers[this._drag.handlerName]) {
+        if (terrain) {
+            if (!this._eventsInProgress.drag && combinedEventsInProgress.drag) {
+                // started, remember starting state
+                if (terrain) {
+                    map.fire(new Event('freezeElevation', {freeze: true}));
+                }
+            } else if (deactivatedHandlers.drag) {
                 map.fire(new Event('freezeElevation', {freeze: false}));
-                this._drag = null;
-            // drag map
-            } else if (combinedEventsInProgress.drag && this._drag) {
-                tr.center = tr.pointLocation(tr.centerPoint.sub(panDelta));
             }
         }
+
+        if (bearing !== undefined) {
+            tr2.bearing = bearing;
+        }
+        if (pitch !== undefined) {
+            tr2.pitch = pitch;
+        }
+        if (zoom !== undefined) {
+            tr2.zoom = zoom;
+        }
+
+        const point = around || tr.centerPoint;
+        const lngLat = dragLngLat || tr.pointLocation(point);
+        tr2.setLocationAtPoint(lngLat, point);
+
+        this._fireEvent('premove', tr2);
+
+        tr.zoom = tr2.zoom;
+        tr.pitch = tr2.pitch;
+        tr.bearing = tr2.bearing;
+        tr.center = tr2.center;
 
         this._map._update();
         if (!combinedResult.noInertia) this._inertia.record(combinedResult);
         this._fireEvents(combinedEventsInProgress, deactivatedHandlers, true);
-
     }
 
     _fireEvents(newEventsInProgress: {[x: string]: any}, deactivatedHandlers: any, allowEndAnimation: boolean) {

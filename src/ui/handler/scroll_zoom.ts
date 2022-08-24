@@ -314,7 +314,7 @@ class ScrollZoomHandler {
         return {
             noInertia: true,
             needsRenderFrame: !finished,
-            zoomDelta: zoom - tr.zoom,
+            zoom,
             around: this._aroundPoint,
             originalEvent: this._lastWheelEvent
         };

@@ -859,14 +859,16 @@ abstract class Camera extends Evented {
         this._prepareEase(eventData, options.noMoveStart, currently);
 
         this._ease((k) => {
+            const tr2 = tr.clone();
+
             if (this._zooming) {
-                tr.zoom = interpolate(startZoom, zoom, k);
+                tr2.zoom = interpolate(startZoom, zoom, k);
             }
             if (this._rotating) {
-                tr.bearing = interpolate(startBearing, bearing, k);
+                tr2.bearing = interpolate(startBearing, bearing, k);
             }
             if (this._pitching) {
-                tr.pitch = interpolate(startPitch, pitch, k);
+                tr2.pitch = interpolate(startPitch, pitch, k);
             }
             if (this._padding) {
                 tr.interpolatePadding(startPadding, padding as PaddingOptions, k);
@@ -876,7 +878,7 @@ abstract class Camera extends Evented {
             }
 
             if (around) {
-                tr.setLocationAtPoint(around, aroundPoint);
+                tr2.setLocationAtPoint(around, aroundPoint);
             } else {
                 const scale = tr.zoomScale(tr.zoom - startZoom);
                 const base = zoom > startZoom ?
@@ -884,8 +886,15 @@ abstract class Camera extends Evented {
                     Math.max(0.5, finalScale);
                 const speedup = Math.pow(base, 1 - k);
                 const newCenter = tr.unproject(from.add(delta.mult(k * speedup)).mult(scale));
-                tr.setLocationAtPoint(tr.renderWorldCopies ? newCenter.wrap() : newCenter, pointAtOffset);
+                tr2.setLocationAtPoint(tr.renderWorldCopies ? newCenter.wrap() : newCenter, pointAtOffset);
             }
+
+            this.fire(new Event('premove', {originalEvent: tr2}));
+
+            tr.zoom = tr2.zoom;
+            tr.pitch = tr2.pitch;
+            tr.bearing = tr2.bearing;
+            tr.center = tr2.center;
 
             this._fireMoveEvents(eventData);
 
