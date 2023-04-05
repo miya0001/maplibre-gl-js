@@ -102,11 +102,11 @@ export type StyleSetterOptions = {
 };
 
 /**
- * Part of {@link Map#setStyle} options, transformStyle is a convenience function that allows to modify a style after it is fetched but before it is committed to the map state
- * this function exposes previous and next styles, it can be commonly used to support a range of functionalities like:
- *      when previous style carries certain 'state' that needs to be carried over to a new style gracefully
- *      when a desired style is a certain combination of previous and incoming style
- *      when an incoming style requires modification based on external state
+ * transformStyle は {@link Map#setStyle} オプションの一部で、スタイルが取得された後、マップ状態にコミットされる前にスタイルを変更することができる便利な関数です。
+ * この関数は、前のスタイルと次のスタイルを公開し、次のようなさまざまな機能をサポートするために一般的に使用することができます：
+ * 前のスタイルが特定の「状態」を保持しており、それを新しいスタイルに優雅に引き継ぐ必要がある場合。
+ * 希望するスタイルが、前のスタイルと次のスタイルのある組み合わせの場合。
+ * 外的要因でスタイルを変更する必要がある場合。
  *
  * @typedef {Function} TransformStyleFunction
  * @param {StyleSpecification | undefined} previousStyle The current style.
